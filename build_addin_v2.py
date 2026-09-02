@@ -528,6 +528,10 @@ Private Sub UserForm_Initialize()
     txtTransforms.Text = "Inc => Incorporated" & vbCrLf & "Corp => Corporation" & vbCrLf & "COM STK =>"
 
     RefreshTables
+
+    ' Explicitly populate columns (Change events may not fire for design-time controls)
+    If cboLeftTable.ListIndex >= 0 Then PopulateMatchColumns cboLeftTable, cboLeftMatchCol
+    If cboRightTable.ListIndex >= 0 Then PopulateMatchColumns cboRightTable, cboRightMatchCol
 End Sub
 
 Private Sub PositionAsTaskPane()
@@ -593,7 +597,15 @@ Private Sub cboLeftTable_Change()
     PopulateMatchColumns cboLeftTable, cboLeftMatchCol
 End Sub
 
+Private Sub cboLeftTable_Click()
+    PopulateMatchColumns cboLeftTable, cboLeftMatchCol
+End Sub
+
 Private Sub cboRightTable_Change()
+    PopulateMatchColumns cboRightTable, cboRightMatchCol
+End Sub
+
+Private Sub cboRightTable_Click()
     PopulateMatchColumns cboRightTable, cboRightMatchCol
 End Sub
 
@@ -631,6 +643,11 @@ Private Sub btnGo_Click()
     If cboRightTable.ListIndex < 0 Then
         MsgBox "Select a Right Table.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
+
+    ' Auto-populate columns if empty (safety net)
+    If cboLeftMatchCol.ListCount = 0 Then PopulateMatchColumns cboLeftTable, cboLeftMatchCol
+    If cboRightMatchCol.ListCount = 0 Then PopulateMatchColumns cboRightTable, cboRightMatchCol
+
     If cboLeftMatchCol.ListIndex < 0 Then
         MsgBox "Select a Left Match Column.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
