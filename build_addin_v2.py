@@ -1,6 +1,9 @@
 """
-Build Fuzzy Lookup Add-In v2.0 for Excel 2024 (64-bit)
+Build Fuzzy Lookup Add-In v2.1 for Excel 2024 (64-bit)
 Replicates the original Microsoft Fuzzy Lookup task pane experience.
+
+Fix: Controls are now added at DESIGN TIME via the Designer object,
+so VBA event handlers (btnGo_Click, etc.) fire correctly.
 """
 import win32com.client
 import os
@@ -225,7 +228,6 @@ Public Function CleanText(ByVal text As String, _
 
     If trimSpaces Then
         result = Trim$(result)
-        ' Collapse multiple spaces
         Do While InStr(result, "  ") > 0
             result = Replace(result, "  ", " ")
         Loop
@@ -365,7 +367,6 @@ Public Sub ExecuteFuzzyLookup(leftWs As Worksheet, leftAddr As String, leftMatch
 
         For ii = 1 To outputN
             c = 1
-            ' Alternate row shading
             Dim rowColor As Long
             If (outRow Mod 2) = 0 Then rowColor = RGB(242, 246, 252) Else rowColor = RGB(255, 255, 255)
 
@@ -380,7 +381,6 @@ Public Sub ExecuteFuzzyLookup(leftWs As Worksheet, leftAddr As String, leftMatch
                 c = c + 1
             Next colIdx
 
-            ' Similarity with color coding
             wsOut.Cells(outRow, c).Value = Round(matchScores(ii), 4)
             wsOut.Cells(outRow, c).NumberFormat = "0.00%"
             wsOut.Cells(outRow, c).Interior.Color = rowColor
@@ -416,7 +416,6 @@ Public Sub ExecuteFuzzyLookup(leftWs As Worksheet, leftAddr As String, leftMatch
     ActiveWindow.FreezePanes = True
     wsOut.Cells(1, 1).Select
 
-    ' Autofit
     wsOut.UsedRange.Columns.AutoFit
 
     Application.StatusBar = False
@@ -487,7 +486,7 @@ End Sub
 
 Public Sub ShowAbout()
     MsgBox "Fuzzy Lookup Add-In for Excel" & vbCrLf & _
-           "Version 2.0.0 (64-bit compatible)" & vbCrLf & vbCrLf & _
+           "Version 2.1.0 (64-bit compatible)" & vbCrLf & vbCrLf & _
            "A rebuilt replacement for the original Microsoft" & vbCrLf & _
            "Fuzzy Lookup Add-In, fully compatible with" & vbCrLf & _
            "64-bit Excel 2024." & vbCrLf & vbCrLf & _
@@ -504,227 +503,69 @@ End Sub
 """
 
 # =====================================================================
-# VBA: UserForm code for the task pane
+# VBA: UserForm code (event handlers only - controls added at design time)
 # =====================================================================
 FORM_CODE = r"""
 Option Explicit
 
-' ============================================================
-' Fuzzy Lookup Task Pane
-' Replicates the original Microsoft Fuzzy Lookup UI
-' ============================================================
-
-Private mLeftTableRange As Range
-Private mRightTableRange As Range
-
 Private Sub UserForm_Initialize()
-    Me.Caption = "Fuzzy Lookup"
-    Me.StartUpPosition = 0  ' Manual
+    Me.StartUpPosition = 0
     PositionAsTaskPane
-    BuildControls
+
+    ' Set defaults for design-time controls
+    scrThreshold.Min = 0
+    scrThreshold.Max = 100
+    scrThreshold.Value = 65
+    scrThreshold.SmallChange = 5
+    scrThreshold.LargeChange = 10
+
+    lblThreshVal.Caption = "0.65"
+    txtMaxMatches.Text = "1"
+    txtOutputSheet.Text = "Fuzzy_Results"
+    chkTrim.Value = True
+    chkLower.Value = True
+    chkRemovePunct.Value = False
+    txtTransforms.Text = "Inc => Incorporated" & vbCrLf & "Corp => Corporation" & vbCrLf & "COM STK =>"
+
     RefreshTables
 End Sub
 
 Private Sub PositionAsTaskPane()
-    ' Dock to right side of Excel window
     On Error Resume Next
-    Dim excelLeft As Double, excelTop As Double
-    Dim excelWidth As Double, excelHeight As Double
-
-    excelLeft = Application.Left
-    excelTop = Application.Top
-    excelWidth = Application.Width
-    excelHeight = Application.Height
-
     Me.Width = 320
-    Me.Height = excelHeight - 60
-    Me.Left = excelLeft + excelWidth - Me.Width - 10
-    Me.Top = excelTop + 80
+    Me.Height = Application.Height - 60
+    Me.Left = Application.Left + Application.Width - Me.Width - 10
+    Me.Top = Application.Top + 80
     On Error GoTo 0
 End Sub
 
-Private Sub BuildControls()
-    Dim y As Single
-    y = 8
-
-    ' ---- LEFT TABLE SECTION ----
-    AddSectionHeader "lblLeftHdr", "Left Table (Lookup Values)", y
-    y = y + 22
-
-    AddLabel "lblLeftTbl", "Table:", 8, y + 3, 42
-    AddComboBox "cboLeftTable", 54, y, 250
-    y = y + 28
-
-    AddLabel "lblLeftCol", "Match Column:", 8, y + 3, 80
-    AddComboBox "cboLeftMatchCol", 92, y, 212
-    y = y + 34
-
-    ' ---- RIGHT TABLE SECTION ----
-    AddSectionHeader "lblRightHdr", "Right Table (Match Against)", y
-    y = y + 22
-
-    AddLabel "lblRightTbl", "Table:", 8, y + 3, 42
-    AddComboBox "cboRightTable", 54, y, 250
-    y = y + 28
-
-    AddLabel "lblRightCol", "Match Column:", 8, y + 3, 80
-    AddComboBox "cboRightMatchCol", 92, y, 212
-    y = y + 34
-
-    ' ---- SIMILARITY SECTION ----
-    AddSectionHeader "lblSimHdr", "Similarity Threshold", y
-    y = y + 22
-
-    ' Threshold slider using scrollbar
-    Dim scr As MSForms.ScrollBar
-    Set scr = Me.Controls.Add("Forms.ScrollBar.1", "scrThreshold")
-    scr.Left = 8: scr.Top = y: scr.Width = 220: scr.Height = 20
-    scr.Min = 0: scr.Max = 100: scr.Value = 65
-    scr.SmallChange = 5: scr.LargeChange = 10
-    scr.Orientation = fmOrientationHorizontal
-
-    AddLabel "lblThreshVal", "0.65", 234, y + 2, 40
-    Me.Controls("lblThreshVal").Font.Bold = True
-    Me.Controls("lblThreshVal").Font.Size = 11
-
-    y = y + 28
-
-    AddLabel "lblLow", "Low (more matches)", 8, y, 130
-    Dim lblHigh As MSForms.Label
-    Set lblHigh = Me.Controls.Add("Forms.Label.1", "lblHigh")
-    lblHigh.Caption = "High (fewer matches)"
-    lblHigh.Left = 168: lblHigh.Top = y: lblHigh.Width = 130: lblHigh.Height = 14
-    lblHigh.Font.Size = 7: lblHigh.TextAlign = fmTextAlignRight
-    Me.Controls("lblLow").Font.Size = 7
-    y = y + 22
-
-    ' ---- MAX MATCHES ----
-    AddLabel "lblMaxM", "Max Matches:", 8, y + 3, 78
-    AddTextBox "txtMaxMatches", 90, y, 40, "1"
-    AddLabel "lblMaxMHint", "per row", 134, y + 3, 50
-    y = y + 30
-
-    ' ---- OUTPUT SECTION ----
-    AddLabel "lblOutSheet", "Output Sheet:", 8, y + 3, 78
-    AddTextBox "txtOutputSheet", 90, y, 140, "Fuzzy_Results"
-    y = y + 34
-
-    ' ---- TRANSFORMATIONS SECTION ----
-    AddSectionHeader "lblTransHdr", "Text Cleaning", y
-    y = y + 22
-
-    AddCheckBox "chkTrim", "Trim & collapse spaces", 8, y, True
-    y = y + 20
-    AddCheckBox "chkLower", "Convert to lowercase", 8, y, True
-    y = y + 20
-    AddCheckBox "chkRemovePunct", "Remove punctuation", 8, y, False
-    y = y + 28
-
-    ' ---- CUSTOM TRANSFORMATIONS ----
-    AddSectionHeader "lblCustHdr", "Custom Replacements (optional)", y
-    y = y + 20
-
-    AddLabel "lblCustHelp", "One per line:  find => replace", 8, y, 280
-    Me.Controls("lblCustHelp").Font.Size = 7
-    y = y + 16
-
-    Dim txtTrans As MSForms.TextBox
-    Set txtTrans = Me.Controls.Add("Forms.TextBox.1", "txtTransforms")
-    txtTrans.Left = 8: txtTrans.Top = y: txtTrans.Width = 296: txtTrans.Height = 60
-    txtTrans.MultiLine = True
-    txtTrans.ScrollBars = fmScrollBarsVertical
-    txtTrans.Text = "Inc => Incorporated" & vbCrLf & "Corp => Corporation" & vbCrLf & "COM STK =>"
-    txtTrans.Font.Name = "Consolas"
-    txtTrans.Font.Size = 9
-    y = y + 68
-
-    ' ---- BUTTONS ----
-    Dim btnGo As MSForms.CommandButton
-    Set btnGo = Me.Controls.Add("Forms.CommandButton.1", "btnGo")
-    btnGo.Caption = "Go!"
-    btnGo.Left = 8: btnGo.Top = y: btnGo.Width = 200: btnGo.Height = 36
-    btnGo.Font.Size = 13: btnGo.Font.Bold = True
-    btnGo.BackColor = RGB(68, 114, 196)
-    btnGo.ForeColor = RGB(255, 255, 255)
-
-    Dim btnClose As MSForms.CommandButton
-    Set btnClose = Me.Controls.Add("Forms.CommandButton.1", "btnClose")
-    btnClose.Caption = "Close"
-    btnClose.Left = 214: btnClose.Top = y: btnClose.Width = 90: btnClose.Height = 36
-    btnClose.Font.Size = 11
-End Sub
-
-' ---- Helper: Add controls ----
-Private Sub AddSectionHeader(nm As String, cap As String, y As Single)
-    Dim lbl As MSForms.Label
-    Set lbl = Me.Controls.Add("Forms.Label.1", nm)
-    lbl.Caption = cap
-    lbl.Left = 4: lbl.Top = y: lbl.Width = 304: lbl.Height = 18
-    lbl.Font.Bold = True: lbl.Font.Size = 9
-    lbl.BackColor = RGB(68, 114, 196)
-    lbl.ForeColor = RGB(255, 255, 255)
-End Sub
-
-Private Sub AddLabel(nm As String, cap As String, l As Single, t As Single, w As Single)
-    Dim lbl As MSForms.Label
-    Set lbl = Me.Controls.Add("Forms.Label.1", nm)
-    lbl.Caption = cap
-    lbl.Left = l: lbl.Top = t: lbl.Width = w: lbl.Height = 15
-    lbl.Font.Size = 9
-End Sub
-
-Private Sub AddComboBox(nm As String, l As Single, t As Single, w As Single)
-    Dim cbo As MSForms.ComboBox
-    Set cbo = Me.Controls.Add("Forms.ComboBox.1", nm)
-    cbo.Left = l: cbo.Top = t: cbo.Width = w: cbo.Height = 20
-    cbo.Style = fmStyleDropDownList
-    cbo.Font.Size = 9
-End Sub
-
-Private Sub AddTextBox(nm As String, l As Single, t As Single, w As Single, def As String)
-    Dim txt As MSForms.TextBox
-    Set txt = Me.Controls.Add("Forms.TextBox.1", nm)
-    txt.Left = l: txt.Top = t: txt.Width = w: txt.Height = 20
-    txt.Text = def: txt.Font.Size = 9
-End Sub
-
-Private Sub AddCheckBox(nm As String, cap As String, l As Single, t As Single, defaultVal As Boolean)
-    Dim chk As MSForms.CheckBox
-    Set chk = Me.Controls.Add("Forms.CheckBox.1", nm)
-    chk.Caption = cap
-    chk.Left = l: chk.Top = t: chk.Width = 280: chk.Height = 18
-    chk.Value = defaultVal: chk.Font.Size = 9
-End Sub
-
-' ---- Populate table/range list ----
 Private Sub RefreshTables()
-    Dim cboLeft As MSForms.ComboBox, cboRight As MSForms.ComboBox
-    Set cboLeft = Me.Controls("cboLeftTable")
-    Set cboRight = Me.Controls("cboRightTable")
-    cboLeft.Clear: cboRight.Clear
+    cboLeftTable.Clear
+    cboRightTable.Clear
 
     Dim ws As Worksheet
     Dim lo As ListObject
 
-    ' Add Excel Tables first
     For Each ws In ActiveWorkbook.Worksheets
         For Each lo In ws.ListObjects
-            cboLeft.AddItem lo.Name & "  [Table - " & ws.Name & "]"
-            cboRight.AddItem lo.Name & "  [Table - " & ws.Name & "]"
+            cboLeftTable.AddItem lo.Name & "  [Table - " & ws.Name & "]"
+            cboRightTable.AddItem lo.Name & "  [Table - " & ws.Name & "]"
         Next lo
     Next ws
 
-    ' Add sheets (used range)
     For Each ws In ActiveWorkbook.Worksheets
         If ws.UsedRange.Rows.Count > 1 Then
-            cboLeft.AddItem ws.Name & "  [Sheet]"
-            cboRight.AddItem ws.Name & "  [Sheet]"
+            cboLeftTable.AddItem ws.Name & "  [Sheet]"
+            cboRightTable.AddItem ws.Name & "  [Sheet]"
         End If
     Next ws
 
-    If cboLeft.ListCount > 0 Then cboLeft.ListIndex = 0
-    If cboRight.ListCount > 1 Then cboRight.ListIndex = 1 _
-    Else If cboRight.ListCount > 0 Then cboRight.ListIndex = 0
+    If cboLeftTable.ListCount > 0 Then cboLeftTable.ListIndex = 0
+    If cboRightTable.ListCount > 1 Then
+        cboRightTable.ListIndex = 1
+    ElseIf cboRightTable.ListCount > 0 Then
+        cboRightTable.ListIndex = 0
+    End If
 End Sub
 
 Private Function ResolveTableRange(ByVal entry As String) As Range
@@ -748,13 +589,12 @@ Private Function ResolveTableRange(ByVal entry As String) As Range
     End If
 End Function
 
-' ---- Event: Left table changed -> populate columns ----
 Private Sub cboLeftTable_Change()
-    PopulateMatchColumns Me.Controls("cboLeftTable"), Me.Controls("cboLeftMatchCol")
+    PopulateMatchColumns cboLeftTable, cboLeftMatchCol
 End Sub
 
 Private Sub cboRightTable_Change()
-    PopulateMatchColumns Me.Controls("cboRightTable"), Me.Controls("cboRightMatchCol")
+    PopulateMatchColumns cboRightTable, cboRightMatchCol
 End Sub
 
 Private Sub PopulateMatchColumns(cboTable As MSForms.ComboBox, cboCol As MSForms.ComboBox)
@@ -776,51 +616,49 @@ Private Sub PopulateMatchColumns(cboTable As MSForms.ComboBox, cboCol As MSForms
     If cboCol.ListCount > 0 Then cboCol.ListIndex = 0
 End Sub
 
-' ---- Threshold slider ----
 Private Sub scrThreshold_Change()
-    Me.Controls("lblThreshVal").Caption = Format(Me.Controls("scrThreshold").Value / 100#, "0.00")
+    lblThreshVal.Caption = Format(scrThreshold.Value / 100#, "0.00")
 End Sub
+
 Private Sub scrThreshold_Scroll()
     scrThreshold_Change
 End Sub
 
-' ---- GO BUTTON ----
 Private Sub btnGo_Click()
-    ' Validate
-    If Me.Controls("cboLeftTable").ListIndex < 0 Then
+    If cboLeftTable.ListIndex < 0 Then
         MsgBox "Select a Left Table.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
-    If Me.Controls("cboRightTable").ListIndex < 0 Then
+    If cboRightTable.ListIndex < 0 Then
         MsgBox "Select a Right Table.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
-    If Me.Controls("cboLeftMatchCol").ListIndex < 0 Then
+    If cboLeftMatchCol.ListIndex < 0 Then
         MsgBox "Select a Left Match Column.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
-    If Me.Controls("cboRightMatchCol").ListIndex < 0 Then
+    If cboRightMatchCol.ListIndex < 0 Then
         MsgBox "Select a Right Match Column.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
 
     Dim leftRange As Range, rightRange As Range
-    Set leftRange = ResolveTableRange(Me.Controls("cboLeftTable").Value)
-    Set rightRange = ResolveTableRange(Me.Controls("cboRightTable").Value)
+    Set leftRange = ResolveTableRange(cboLeftTable.Value)
+    Set rightRange = ResolveTableRange(cboRightTable.Value)
 
     If leftRange Is Nothing Or rightRange Is Nothing Then
         MsgBox "Could not resolve table ranges.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
 
     Dim threshold As Double
-    threshold = Me.Controls("scrThreshold").Value / 100#
+    threshold = scrThreshold.Value / 100#
 
     Dim maxMatches As Long
-    If IsNumeric(Me.Controls("txtMaxMatches").Text) Then
-        maxMatches = CLng(Me.Controls("txtMaxMatches").Text)
+    If IsNumeric(txtMaxMatches.Text) Then
+        maxMatches = CLng(txtMaxMatches.Text)
     Else
         maxMatches = 1
     End If
     If maxMatches < 1 Then maxMatches = 1
 
     Dim outputName As String
-    outputName = Trim$(Me.Controls("txtOutputSheet").Text)
+    outputName = Trim$(txtOutputSheet.Text)
     If Len(outputName) = 0 Then outputName = "Fuzzy_Results"
 
     ' Parse transformations
@@ -830,7 +668,7 @@ Private Sub btnGo_Click()
     ReDim rules(0 To 99)
 
     Dim transText As String
-    transText = Me.Controls("txtTransforms").Text
+    transText = txtTransforms.Text
     If Len(Trim$(transText)) > 0 Then
         Dim lines() As String
         lines = Split(transText, vbCrLf)
@@ -849,15 +687,14 @@ Private Sub btnGo_Click()
     End If
 
     Dim doTrim As Boolean, doLower As Boolean, doRemovePunct As Boolean
-    doTrim = Me.Controls("chkTrim").Value
-    doLower = Me.Controls("chkLower").Value
-    doRemovePunct = Me.Controls("chkRemovePunct").Value
+    doTrim = chkTrim.Value
+    doLower = chkLower.Value
+    doRemovePunct = chkRemovePunct.Value
 
-    ' Execute
     ExecuteFuzzyLookup leftRange.Worksheet, leftRange.Address, _
-                       Me.Controls("cboLeftMatchCol").ListIndex + 1, _
+                       cboLeftMatchCol.ListIndex + 1, _
                        rightRange.Worksheet, rightRange.Address, _
-                       Me.Controls("cboRightMatchCol").ListIndex + 1, _
+                       cboRightMatchCol.ListIndex + 1, _
                        threshold, maxMatches, _
                        doTrim, doLower, doRemovePunct, _
                        outputName, rules, ruleCount
@@ -865,10 +702,6 @@ End Sub
 
 Private Sub btnClose_Click()
     Unload Me
-End Sub
-
-Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
-    ' Allow close
 End Sub
 """
 
@@ -886,10 +719,190 @@ End Sub
 """
 
 
+def add_label(designer, name, caption, left, top, width, height=15, font_size=9,
+              bold=False, back_color=None, fore_color=None, text_align=None):
+    """Add a Label control to the form designer."""
+    ctrl = designer.Controls.Add("Forms.Label.1", name, True)
+    ctrl.Caption = caption
+    ctrl.Left = left
+    ctrl.Top = top
+    ctrl.Width = width
+    ctrl.Height = height
+    ctrl.Font.Size = font_size
+    if bold:
+        ctrl.Font.Bold = True
+    if back_color is not None:
+        ctrl.BackColor = back_color
+    if fore_color is not None:
+        ctrl.ForeColor = fore_color
+    if text_align is not None:
+        ctrl.TextAlign = text_align
+    return ctrl
+
+
+def add_combobox(designer, name, left, top, width, height=20):
+    """Add a ComboBox control to the form designer."""
+    ctrl = designer.Controls.Add("Forms.ComboBox.1", name, True)
+    ctrl.Left = left
+    ctrl.Top = top
+    ctrl.Width = width
+    ctrl.Height = height
+    ctrl.Style = 2  # fmStyleDropDownList
+    ctrl.Font.Size = 9
+    return ctrl
+
+
+def add_textbox(designer, name, left, top, width, height=20, text=""):
+    """Add a TextBox control to the form designer."""
+    ctrl = designer.Controls.Add("Forms.TextBox.1", name, True)
+    ctrl.Left = left
+    ctrl.Top = top
+    ctrl.Width = width
+    ctrl.Height = height
+    ctrl.Text = text
+    ctrl.Font.Size = 9
+    return ctrl
+
+
+def add_checkbox(designer, name, caption, left, top, value=False):
+    """Add a CheckBox control to the form designer."""
+    ctrl = designer.Controls.Add("Forms.CheckBox.1", name, True)
+    ctrl.Caption = caption
+    ctrl.Left = left
+    ctrl.Top = top
+    ctrl.Width = 280
+    ctrl.Height = 18
+    ctrl.Value = value
+    ctrl.Font.Size = 9
+    return ctrl
+
+
+def add_section_header(designer, name, caption, y):
+    """Add a section header label."""
+    return add_label(designer, name, caption, 4, y, 304, 18,
+                     font_size=9, bold=True,
+                     back_color=0xC47244,  # RGB(68, 114, 196) in BGR
+                     fore_color=0xFFFFFF)
+
+
+def build_form_controls(designer):
+    """Add all controls to the form at design time."""
+    y = 8
+
+    # ---- LEFT TABLE SECTION ----
+    add_section_header(designer, "lblLeftHdr", "Left Table (Lookup Values)", y)
+    y += 22
+
+    add_label(designer, "lblLeftTbl", "Table:", 8, y + 3, 42)
+    add_combobox(designer, "cboLeftTable", 54, y, 250)
+    y += 28
+
+    add_label(designer, "lblLeftCol", "Match Column:", 8, y + 3, 80)
+    add_combobox(designer, "cboLeftMatchCol", 92, y, 212)
+    y += 34
+
+    # ---- RIGHT TABLE SECTION ----
+    add_section_header(designer, "lblRightHdr", "Right Table (Match Against)", y)
+    y += 22
+
+    add_label(designer, "lblRightTbl", "Table:", 8, y + 3, 42)
+    add_combobox(designer, "cboRightTable", 54, y, 250)
+    y += 28
+
+    add_label(designer, "lblRightCol", "Match Column:", 8, y + 3, 80)
+    add_combobox(designer, "cboRightMatchCol", 92, y, 212)
+    y += 34
+
+    # ---- SIMILARITY SECTION ----
+    add_section_header(designer, "lblSimHdr", "Similarity Threshold", y)
+    y += 22
+
+    # Threshold scrollbar
+    scr = designer.Controls.Add("Forms.ScrollBar.1", "scrThreshold", True)
+    scr.Left = 8
+    scr.Top = y
+    scr.Width = 220
+    scr.Height = 20
+    scr.Min = 0
+    scr.Max = 100
+    scr.Value = 65
+    scr.SmallChange = 5
+    scr.LargeChange = 10
+    scr.Orientation = 1  # fmOrientationHorizontal
+
+    lbl = add_label(designer, "lblThreshVal", "0.65", 234, y + 2, 40,
+                    font_size=11, bold=True)
+    y += 28
+
+    add_label(designer, "lblLow", "Low (more matches)", 8, y, 130, font_size=7)
+    add_label(designer, "lblHigh", "High (fewer matches)", 168, y, 130,
+              font_size=7, text_align=3)  # fmTextAlignRight
+    y += 22
+
+    # ---- MAX MATCHES ----
+    add_label(designer, "lblMaxM", "Max Matches:", 8, y + 3, 78)
+    add_textbox(designer, "txtMaxMatches", 90, y, 40, text="1")
+    add_label(designer, "lblMaxMHint", "per row", 134, y + 3, 50)
+    y += 30
+
+    # ---- OUTPUT SECTION ----
+    add_label(designer, "lblOutSheet", "Output Sheet:", 8, y + 3, 78)
+    add_textbox(designer, "txtOutputSheet", 90, y, 140, text="Fuzzy_Results")
+    y += 34
+
+    # ---- TEXT CLEANING SECTION ----
+    add_section_header(designer, "lblTransHdr", "Text Cleaning", y)
+    y += 22
+
+    add_checkbox(designer, "chkTrim", "Trim && collapse spaces", 8, y, True)
+    y += 20
+    add_checkbox(designer, "chkLower", "Convert to lowercase", 8, y, True)
+    y += 20
+    add_checkbox(designer, "chkRemovePunct", "Remove punctuation", 8, y, False)
+    y += 28
+
+    # ---- CUSTOM TRANSFORMATIONS ----
+    add_section_header(designer, "lblCustHdr", "Custom Replacements (optional)", y)
+    y += 20
+
+    add_label(designer, "lblCustHelp", "One per line:  find => replace", 8, y, 280,
+              font_size=7)
+    y += 16
+
+    txt = add_textbox(designer, "txtTransforms", 8, y, 296, height=60,
+                      text="Inc => Incorporated\r\nCorp => Corporation\r\nCOM STK =>")
+    txt.MultiLine = True
+    txt.ScrollBars = 2  # fmScrollBarsVertical
+    txt.Font.Name = "Consolas"
+    txt.Font.Size = 9
+    y += 68
+
+    # ---- BUTTONS ----
+    btn_go = designer.Controls.Add("Forms.CommandButton.1", "btnGo", True)
+    btn_go.Caption = "Go!"
+    btn_go.Left = 8
+    btn_go.Top = y
+    btn_go.Width = 200
+    btn_go.Height = 36
+    btn_go.Font.Size = 13
+    btn_go.Font.Bold = True
+    btn_go.BackColor = 0xC47244  # RGB(68, 114, 196) in BGR
+    btn_go.ForeColor = 0xFFFFFF
+
+    btn_close = designer.Controls.Add("Forms.CommandButton.1", "btnClose", True)
+    btn_close.Caption = "Close"
+    btn_close.Left = 214
+    btn_close.Top = y
+    btn_close.Width = 90
+    btn_close.Height = 36
+    btn_close.Font.Size = 11
+
+
 def build_addin():
     print("=" * 60)
-    print("Building Fuzzy Lookup Add-In v2.0")
+    print("Building Fuzzy Lookup Add-In v2.1")
     print("64-bit Excel 2024 Compatible")
+    print("Fix: Design-time controls for proper event handling")
     print("=" * 60)
 
     if os.path.exists(OUTPUT_PATH):
@@ -923,16 +936,21 @@ def build_addin():
             mod.Name = name
             mod.CodeModule.AddFromString(code.strip())
 
-        # Create the UserForm (task pane)
+        # Create the UserForm with design-time controls
         print("  Creating Task Pane (UserForm)...")
         frm = vbp.VBComponents.Add(3)  # vbext_ct_MSForm
         frm.Name = "FuzzyTaskPane"
         frm.Properties.Item("Caption").Value = "Fuzzy Lookup"
         frm.Properties.Item("Width").Value = 320
         frm.Properties.Item("Height").Value = 620
-        frm.Properties.Item("BackColor").Value = 0xFFFFFF  # white
+        frm.Properties.Item("BackColor").Value = 0xFFFFFF
 
-        # Add code to the form
+        # Add controls at DESIGN TIME via Designer
+        print("  Adding controls at design time...")
+        build_form_controls(frm.Designer)
+
+        # Add event handler code to the form
+        print("  Adding form event code...")
         cm = frm.CodeModule
         if cm.CountOfLines > 0:
             cm.DeleteLines(1, cm.CountOfLines)
