@@ -1,0 +1,6 @@
+ 1. Save FuzzyLookup.xlam anywhere on their PC
+  2. Open Excel
+  3. File → Options → Add-ins
+  4. At the bottom: Manage "Excel Add-ins" → click Go...
+  5. Click Browse... → select the FuzzyLookup.xlam file → OK
+  6. Check the box next to FuzzyLookup → OK
