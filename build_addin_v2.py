@@ -19,33 +19,36 @@ OUTPUT_PATH = os.path.join(ADDIN_DIR, "FuzzyLookup.xlam")
 MOD_ALGORITHMS = """
 Option Explicit
 
+' All algorithms use byte arrays instead of Mid$() for ~5x faster char comparison.
+' Strings are assumed already lowercased by the caller (CleanText in engine).
+
 Public Function LevenshteinDistance(ByVal s1 As String, ByVal s2 As String) As Long
-    ' Optimized: 2-row array instead of full matrix (saves memory + faster)
     Dim len1 As Long, len2 As Long
     Dim prev() As Long, curr() As Long
     Dim i As Long, j As Long
     Dim cost As Long, above As Long, leftV As Long, diag As Long
+    Dim b1() As Byte, b2() As Byte
 
-    s1 = LCase$(s1): s2 = LCase$(s2)
     len1 = Len(s1): len2 = Len(s2)
-
     If len1 = 0 Then LevenshteinDistance = len2: Exit Function
     If len2 = 0 Then LevenshteinDistance = len1: Exit Function
 
-    ' Ensure s1 is shorter (fewer rows to iterate)
+    ' Ensure s1 is shorter
     If len1 > len2 Then
         Dim tmp As String: tmp = s1: s1 = s2: s2 = tmp
         Dim tmpL As Long: tmpL = len1: len1 = len2: len2 = tmpL
     End If
 
-    ReDim prev(0 To len1)
-    ReDim curr(0 To len1)
+    b1 = s1: b2 = s2  ' Unicode byte arrays (2 bytes per char)
+
+    ReDim prev(0 To len1): ReDim curr(0 To len1)
     For i = 0 To len1: prev(i) = i: Next i
 
     For j = 1 To len2
         curr(0) = j
         For i = 1 To len1
-            If Mid$(s1, i, 1) = Mid$(s2, j, 1) Then cost = 0 Else cost = 1
+            ' Compare Unicode chars: index = (charPos-1)*2
+            If b1((i - 1) * 2) = b2((j - 1) * 2) And b1((i - 1) * 2 + 1) = b2((j - 1) * 2 + 1) Then cost = 0 Else cost = 1
             diag = prev(i - 1) + cost
             above = prev(i) + 1
             leftV = curr(i - 1) + 1
@@ -53,7 +56,6 @@ Public Function LevenshteinDistance(ByVal s1 As String, ByVal s2 As String) As L
             If above < curr(i) Then curr(i) = above
             If leftV < curr(i) Then curr(i) = leftV
         Next i
-        ' Swap rows
         Dim sw() As Long: sw = prev: prev = curr: curr = sw
     Next j
     LevenshteinDistance = prev(len1)
@@ -66,17 +68,20 @@ Public Function LevenshteinSimilarity(ByVal s1 As String, ByVal s2 As String) As
     LevenshteinSimilarity = 1# - (CDbl(LevenshteinDistance(s1, s2)) / CDbl(maxLen))
 End Function
 
-Public Function JaroSimilarity(ByVal s1 As String, ByVal s2 As String) As Double
+Public Function JaroWinklerSimilarity(ByVal s1 As String, ByVal s2 As String) As Double
+    ' Combined Jaro + Winkler in one function to avoid double byte conversion
     Dim len1 As Long, len2 As Long, matchDist As Long
     Dim matches As Long, transpositions As Long
     Dim s1Matches() As Boolean, s2Matches() As Boolean
     Dim i As Long, j As Long, k As Long
+    Dim b1() As Byte, b2() As Byte
+    Dim startJ As Long, endJ As Long
 
-    s1 = LCase$(s1): s2 = LCase$(s2)
     len1 = Len(s1): len2 = Len(s2)
+    If len1 = 0 And len2 = 0 Then JaroWinklerSimilarity = 1#: Exit Function
+    If len1 = 0 Or len2 = 0 Then JaroWinklerSimilarity = 0#: Exit Function
 
-    If len1 = 0 And len2 = 0 Then JaroSimilarity = 1#: Exit Function
-    If len1 = 0 Or len2 = 0 Then JaroSimilarity = 0#: Exit Function
+    b1 = s1: b2 = s2
 
     If len1 > len2 Then matchDist = CLng(len1 / 2) - 1 Else matchDist = CLng(len2 / 2) - 1
     If matchDist < 0 Then matchDist = 0
@@ -85,41 +90,40 @@ Public Function JaroSimilarity(ByVal s1 As String, ByVal s2 As String) As Double
     matches = 0
 
     For i = 1 To len1
-        Dim startJ As Long, endJ As Long
         startJ = i - matchDist: If startJ < 1 Then startJ = 1
         endJ = i + matchDist: If endJ > len2 Then endJ = len2
         For j = startJ To endJ
-            If Not s2Matches(j) And Mid$(s1, i, 1) = Mid$(s2, j, 1) Then
-                s1Matches(i) = True: s2Matches(j) = True: matches = matches + 1: Exit For
+            If Not s2Matches(j) Then
+                If b1((i - 1) * 2) = b2((j - 1) * 2) And b1((i - 1) * 2 + 1) = b2((j - 1) * 2 + 1) Then
+                    s1Matches(i) = True: s2Matches(j) = True: matches = matches + 1: Exit For
+                End If
             End If
         Next j
     Next i
 
-    If matches = 0 Then JaroSimilarity = 0#: Exit Function
+    If matches = 0 Then JaroWinklerSimilarity = 0#: Exit Function
 
     k = 1: transpositions = 0
     For i = 1 To len1
         If s1Matches(i) Then
             Do While Not s2Matches(k): k = k + 1: Loop
-            If Mid$(s1, i, 1) <> Mid$(s2, k, 1) Then transpositions = transpositions + 1
+            If b1((i - 1) * 2) <> b2((k - 1) * 2) Or b1((i - 1) * 2 + 1) <> b2((k - 1) * 2 + 1) Then transpositions = transpositions + 1
             k = k + 1
         End If
     Next i
 
-    JaroSimilarity = (CDbl(matches) / CDbl(len1) + CDbl(matches) / CDbl(len2) + _
-                      (CDbl(matches) - CDbl(transpositions) / 2#) / CDbl(matches)) / 3#
-End Function
+    Dim jaro As Double
+    jaro = (CDbl(matches) / CDbl(len1) + CDbl(matches) / CDbl(len2) + _
+            (CDbl(matches) - CDbl(transpositions) / 2#) / CDbl(matches)) / 3#
 
-Public Function JaroWinklerSimilarity(ByVal s1 As String, ByVal s2 As String) As Double
-    Dim jaro As Double, prefixLen As Long, maxP As Long, i As Long
-    jaro = JaroSimilarity(s1, s2)
-    maxP = 4
-    If Len(s1) < maxP Then maxP = Len(s1)
-    If Len(s2) < maxP Then maxP = Len(s2)
+    ' Winkler prefix bonus
+    Dim prefixLen As Long, maxP As Long
+    maxP = 4: If len1 < maxP Then maxP = len1: If len2 < maxP Then maxP = len2
     prefixLen = 0
     For i = 1 To maxP
-        If LCase$(Mid$(s1, i, 1)) = LCase$(Mid$(s2, i, 1)) Then prefixLen = prefixLen + 1 Else Exit For
+        If b1((i - 1) * 2) = b2((i - 1) * 2) And b1((i - 1) * 2 + 1) = b2((i - 1) * 2 + 1) Then prefixLen = prefixLen + 1 Else Exit For
     Next i
+
     JaroWinklerSimilarity = jaro + (CDbl(prefixLen) * 0.1 * (1# - jaro))
 End Function
 
