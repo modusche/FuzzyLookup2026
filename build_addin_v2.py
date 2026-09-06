@@ -579,6 +579,12 @@ Private Sub RefreshTables()
     ElseIf mCboRightTable.ListCount > 0 Then
         mCboRightTable.ListIndex = 0
     End If
+
+    ' Explicitly populate columns (don't rely on Change events)
+    Dim cboLC As MSForms.ComboBox: Set cboLC = Me.Controls("cboLeftMatchCol")
+    Dim cboRC As MSForms.ComboBox: Set cboRC = Me.Controls("cboRightMatchCol")
+    If mCboLeftTable.ListIndex >= 0 Then PopulateMatchColumns mCboLeftTable, cboLC
+    If mCboRightTable.ListIndex >= 0 Then PopulateMatchColumns mCboRightTable, cboRC
 End Sub
 
 Private Function ResolveTableRange(ByVal entry As String) As Range
