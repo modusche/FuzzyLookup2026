@@ -1,0 +1,12 @@
+{
+  "name": "fuzzy-lookup-2026",
+  "version": "3.0.0",
+  "description": "Fuzzy Lookup 2026 - Office Web Add-in for Excel",
+  "scripts": {
+    "dev": "npx serve src --listen 3000 --ssl-cert localhost.crt --ssl-key localhost.key",
+    "start": "npx serve src --listen 3000"
+  },
+  "devDependencies": {
+    "serve": "^14.2.0"
+  }
+}
