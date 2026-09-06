@@ -193,8 +193,7 @@ Public Type TransformRule
 End Type
 
 Public Function ApplyTransformations(ByVal text As String, rules() As TransformRule, ruleCount As Long) As String
-    Dim i As Long
-    Dim result As String
+    Dim i As Long, result As String
     result = text
     For i = 0 To ruleCount - 1
         If Len(rules(i).FromText) > 0 Then
@@ -204,35 +203,25 @@ Public Function ApplyTransformations(ByVal text As String, rules() As TransformR
     ApplyTransformations = result
 End Function
 
-Public Function CleanText(ByVal text As String, _
-                          trimSpaces As Boolean, _
-                          toLower As Boolean, _
-                          removePunct As Boolean) As String
+Public Function CleanText(ByVal text As String, trimSpaces As Boolean, toLower As Boolean, removePunct As Boolean) As String
     Dim result As String
     result = text
-
     If toLower Then result = LCase$(result)
-
     If removePunct Then
         Dim i As Long, ch As String, cleaned As String
         cleaned = ""
         For i = 1 To Len(result)
             ch = Mid$(result, i, 1)
             Select Case Asc(ch)
-                Case 32, 48 To 57, 65 To 90, 97 To 122
-                    cleaned = cleaned & ch
+                Case 32, 48 To 57, 65 To 90, 97 To 122: cleaned = cleaned & ch
             End Select
         Next i
         result = cleaned
     End If
-
     If trimSpaces Then
         result = Trim$(result)
-        Do While InStr(result, "  ") > 0
-            result = Replace(result, "  ", " ")
-        Loop
+        Do While InStr(result, "  ") > 0: result = Replace(result, "  ", " "): Loop
     End If
-
     CleanText = result
 End Function
 
@@ -243,23 +232,24 @@ Public Sub ExecuteFuzzyLookup(leftWs As Worksheet, leftAddr As String, leftMatch
                                outputSheetName As String, _
                                rules() As TransformRule, ruleCount As Long)
 
-    Dim leftRange As Range, rightRange As Range
-    Dim wsOut As Worksheet
+    Dim leftRange As Range, rightRange As Range, wsOut As Worksheet
     Dim leftRow As Long, rightRow As Long
     Dim leftVal As String, rightVal As String
-    Dim score As Double
-    Dim outRow As Long, c As Long
+    Dim score As Double, outRow As Long, c As Long
     Dim leftCols As Long, rightCols As Long
     Dim totalLeft As Long, totalRight As Long
+    Dim colIdx As Long
+    Dim startTime As Single
 
     Application.ScreenUpdating = False
     Application.Calculation = xlCalculationManual
     Application.EnableEvents = False
     On Error GoTo Cleanup
 
+    startTime = Timer
+
     Set leftRange = leftWs.Range(leftAddr)
     Set rightRange = rightWs.Range(rightAddr)
-
     leftCols = leftRange.Columns.Count
     rightCols = rightRange.Columns.Count
     totalLeft = leftRange.Rows.Count - 1
@@ -270,50 +260,45 @@ Public Sub ExecuteFuzzyLookup(leftWs As Worksheet, leftAddr As String, leftMatch
         GoTo Cleanup
     End If
 
-    ' Create/clear output sheet
-    On Error Resume Next
-    Set wsOut = ActiveWorkbook.Sheets(outputSheetName)
-    On Error GoTo Cleanup
-    If wsOut Is Nothing Then
-        Set wsOut = ActiveWorkbook.Sheets.Add(After:=ActiveWorkbook.Sheets(ActiveWorkbook.Sheets.Count))
-        wsOut.Name = outputSheetName
-    Else
-        wsOut.Cells.Clear
-    End If
+    ' === BULK READ all data into arrays (massive speed boost) ===
+    Dim leftData As Variant, rightData As Variant
+    leftData = leftRange.Value    ' 2D array (1-based)
+    rightData = rightRange.Value
 
-    ' Headers
-    outRow = 1: c = 1
-    Dim colIdx As Long
-    For colIdx = 1 To leftCols
-        wsOut.Cells(outRow, c).Value = leftRange.Cells(1, colIdx).Value
-        wsOut.Cells(outRow, c).Interior.Color = RGB(68, 114, 196)
-        wsOut.Cells(outRow, c).Font.Color = RGB(255, 255, 255)
-        wsOut.Cells(outRow, c).Font.Bold = True
-        c = c + 1
-    Next colIdx
-    For colIdx = 1 To rightCols
-        wsOut.Cells(outRow, c).Value = rightRange.Cells(1, colIdx).Value
-        wsOut.Cells(outRow, c).Interior.Color = RGB(47, 117, 181)
-        wsOut.Cells(outRow, c).Font.Color = RGB(255, 255, 255)
-        wsOut.Cells(outRow, c).Font.Bold = True
-        c = c + 1
-    Next colIdx
-    wsOut.Cells(outRow, c).Value = "Similarity"
-    wsOut.Cells(outRow, c).Interior.Color = RGB(0, 176, 80)
-    wsOut.Cells(outRow, c).Font.Color = RGB(255, 255, 255)
-    wsOut.Cells(outRow, c).Font.Bold = True
-
-    outRow = 2
-
-    ' Pre-cache and pre-clean right table match column
-    Dim rightCache() As String
+    ' Pre-clean match column values
+    Dim leftCache() As String, rightCache() As String
+    ReDim leftCache(1 To totalLeft)
     ReDim rightCache(1 To totalRight)
+
+    Application.StatusBar = "Fuzzy Lookup: Preparing data..."
+    DoEvents
+
     For rightRow = 1 To totalRight
-        rightVal = CStr(rightRange.Cells(rightRow + 1, rightMatchCol).Value)
+        rightVal = CStr(rightData(rightRow + 1, rightMatchCol))
         rightVal = CleanText(rightVal, doTrim, doLower, doRemovePunct)
         If ruleCount > 0 Then rightVal = ApplyTransformations(rightVal, rules, ruleCount)
         rightCache(rightRow) = rightVal
     Next rightRow
+
+    For leftRow = 1 To totalLeft
+        leftVal = CStr(leftData(leftRow + 1, leftMatchCol))
+        leftVal = CleanText(leftVal, doTrim, doLower, doRemovePunct)
+        If ruleCount > 0 Then leftVal = ApplyTransformations(leftVal, rules, ruleCount)
+        leftCache(leftRow) = leftVal
+    Next leftRow
+
+    ' === Collect all results into array, then bulk write ===
+    Dim totalOutCols As Long
+    totalOutCols = leftCols + rightCols + 1
+
+    ' Estimate max output rows
+    Dim maxOutRows As Long
+    maxOutRows = totalLeft * maxMatches
+    If maxOutRows > 1000000 Then maxOutRows = 1000000
+
+    Dim outData() As Variant
+    ReDim outData(1 To maxOutRows, 1 To totalOutCols)
+    outRow = 0
 
     ' Main matching loop
     Dim matchScores() As Double, matchRows() As Long
@@ -321,41 +306,38 @@ Public Sub ExecuteFuzzyLookup(leftWs As Worksheet, leftAddr As String, leftMatch
     ReDim matchRows(1 To totalRight)
 
     For leftRow = 1 To totalLeft
-        If leftRow Mod 5 = 0 Or leftRow = totalLeft Then
+        If leftRow Mod 20 = 0 Or leftRow = totalLeft Then
             Application.StatusBar = "Fuzzy Lookup: " & leftRow & " / " & totalLeft & _
                                     " (" & Format(CDbl(leftRow) / CDbl(totalLeft) * 100, "0") & "%)"
             DoEvents
         End If
 
-        leftVal = CStr(leftRange.Cells(leftRow + 1, leftMatchCol).Value)
-        leftVal = CleanText(leftVal, doTrim, doLower, doRemovePunct)
-        If ruleCount > 0 Then leftVal = ApplyTransformations(leftVal, rules, ruleCount)
+        leftVal = leftCache(leftRow)
+        If Len(leftVal) = 0 Then GoTo NextLeftRow
 
         Dim matchCount As Long
         matchCount = 0
 
         For rightRow = 1 To totalRight
+            If Len(rightCache(rightRow)) = 0 Then GoTo NextRightRow
             score = CombinedSimilarity(leftVal, rightCache(rightRow))
             If score >= threshold Then
                 matchCount = matchCount + 1
                 matchScores(matchCount) = score
                 matchRows(matchCount) = rightRow
             End If
+NextRightRow:
         Next rightRow
 
-        ' Sort matches descending by score (insertion sort)
+        ' Sort top matches descending
         If matchCount > 1 Then
             Dim ii As Long, jj As Long, tmpS As Double, tmpR As Long
             For ii = 2 To matchCount
-                tmpS = matchScores(ii): tmpR = matchRows(ii)
-                jj = ii - 1
+                tmpS = matchScores(ii): tmpR = matchRows(ii): jj = ii - 1
                 Do While jj >= 1
                     If matchScores(jj) < tmpS Then
-                        matchScores(jj + 1) = matchScores(jj)
-                        matchRows(jj + 1) = matchRows(jj)
-                        jj = jj - 1
-                    Else
-                        Exit Do
+                        matchScores(jj + 1) = matchScores(jj): matchRows(jj + 1) = matchRows(jj): jj = jj - 1
+                    Else: Exit Do
                     End If
                 Loop
                 matchScores(jj + 1) = tmpS: matchRows(jj + 1) = tmpR
@@ -366,62 +348,97 @@ Public Sub ExecuteFuzzyLookup(leftWs As Worksheet, leftAddr As String, leftMatch
         outputN = matchCount: If outputN > maxMatches Then outputN = maxMatches
 
         For ii = 1 To outputN
+            outRow = outRow + 1
+            If outRow > maxOutRows Then
+                maxOutRows = maxOutRows + 10000
+                ReDim Preserve outData(1 To maxOutRows, 1 To totalOutCols)
+            End If
             c = 1
-            Dim rowColor As Long
-            If (outRow Mod 2) = 0 Then rowColor = RGB(242, 246, 252) Else rowColor = RGB(255, 255, 255)
-
             For colIdx = 1 To leftCols
-                wsOut.Cells(outRow, c).Value = leftRange.Cells(leftRow + 1, colIdx).Value
-                wsOut.Cells(outRow, c).Interior.Color = rowColor
+                outData(outRow, c) = leftData(leftRow + 1, colIdx)
                 c = c + 1
             Next colIdx
             For colIdx = 1 To rightCols
-                wsOut.Cells(outRow, c).Value = rightRange.Cells(matchRows(ii) + 1, colIdx).Value
-                wsOut.Cells(outRow, c).Interior.Color = rowColor
+                outData(outRow, c) = rightData(matchRows(ii) + 1, colIdx)
                 c = c + 1
             Next colIdx
-
-            wsOut.Cells(outRow, c).Value = Round(matchScores(ii), 4)
-            wsOut.Cells(outRow, c).NumberFormat = "0.00%"
-            wsOut.Cells(outRow, c).Interior.Color = rowColor
-            If matchScores(ii) >= 0.9 Then
-                wsOut.Cells(outRow, c).Font.Color = RGB(0, 128, 0)
-            ElseIf matchScores(ii) >= 0.7 Then
-                wsOut.Cells(outRow, c).Font.Color = RGB(0, 0, 0)
-            Else
-                wsOut.Cells(outRow, c).Font.Color = RGB(200, 100, 0)
-            End If
-            wsOut.Cells(outRow, c).Font.Bold = True
-            outRow = outRow + 1
+            outData(outRow, c) = Round(matchScores(ii), 4)
         Next ii
+
+NextLeftRow:
     Next leftRow
 
-    ' Column borders
-    Dim totalCols As Long
-    totalCols = leftCols + rightCols + 1
-    With wsOut.Range(wsOut.Cells(1, leftCols + 1), wsOut.Cells(outRow - 1, leftCols + 1)).Borders(xlEdgeLeft)
-        .LineStyle = xlContinuous
-        .Weight = xlMedium
-        .Color = RGB(100, 100, 100)
+    ' === Create output sheet ===
+    On Error Resume Next
+    Set wsOut = ActiveWorkbook.Sheets(outputSheetName)
+    On Error GoTo Cleanup
+    If wsOut Is Nothing Then
+        Set wsOut = ActiveWorkbook.Sheets.Add(After:=ActiveWorkbook.Sheets(ActiveWorkbook.Sheets.Count))
+        wsOut.Name = outputSheetName
+    Else
+        wsOut.Cells.Clear
+    End If
+
+    Application.StatusBar = "Fuzzy Lookup: Writing results..."
+    DoEvents
+
+    ' Write headers
+    c = 1
+    For colIdx = 1 To leftCols
+        wsOut.Cells(1, c).Value = leftData(1, colIdx): c = c + 1
+    Next colIdx
+    For colIdx = 1 To rightCols
+        wsOut.Cells(1, c).Value = rightData(1, colIdx): c = c + 1
+    Next colIdx
+    wsOut.Cells(1, c).Value = "Similarity"
+
+    ' Style headers
+    With wsOut.Range(wsOut.Cells(1, 1), wsOut.Cells(1, leftCols))
+        .Interior.Color = RGB(68, 114, 196): .Font.Color = RGB(255, 255, 255): .Font.Bold = True
     End With
-    With wsOut.Range(wsOut.Cells(1, leftCols + rightCols + 1), wsOut.Cells(outRow - 1, leftCols + rightCols + 1)).Borders(xlEdgeLeft)
-        .LineStyle = xlContinuous
-        .Weight = xlMedium
-        .Color = RGB(100, 100, 100)
+    With wsOut.Range(wsOut.Cells(1, leftCols + 1), wsOut.Cells(1, leftCols + rightCols))
+        .Interior.Color = RGB(47, 117, 181): .Font.Color = RGB(255, 255, 255): .Font.Bold = True
+    End With
+    With wsOut.Cells(1, totalOutCols)
+        .Interior.Color = RGB(0, 176, 80): .Font.Color = RGB(255, 255, 255): .Font.Bold = True
     End With
 
-    ' Freeze header
-    wsOut.Activate
-    wsOut.Rows("2:2").Select
-    ActiveWindow.FreezePanes = True
-    wsOut.Cells(1, 1).Select
+    ' === BULK WRITE results (massive speed boost) ===
+    If outRow > 0 Then
+        Dim writeData() As Variant
+        ReDim writeData(1 To outRow, 1 To totalOutCols)
+        For ii = 1 To outRow
+            For c = 1 To totalOutCols
+                writeData(ii, c) = outData(ii, c)
+            Next c
+        Next ii
+        wsOut.Range(wsOut.Cells(2, 1), wsOut.Cells(outRow + 1, totalOutCols)).Value = writeData
 
-    wsOut.UsedRange.Columns.AutoFit
+        ' Format similarity column
+        wsOut.Range(wsOut.Cells(2, totalOutCols), wsOut.Cells(outRow + 1, totalOutCols)).NumberFormat = "0.00%"
+        wsOut.Range(wsOut.Cells(2, totalOutCols), wsOut.Cells(outRow + 1, totalOutCols)).Font.Bold = True
+    End If
+
+    ' Borders
+    On Error Resume Next
+    If outRow > 0 Then
+        wsOut.Range(wsOut.Cells(1, leftCols + 1), wsOut.Cells(outRow + 1, leftCols + 1)).Borders(xlEdgeLeft).LineStyle = xlContinuous
+        wsOut.Range(wsOut.Cells(1, totalOutCols), wsOut.Cells(outRow + 1, totalOutCols)).Borders(xlEdgeLeft).LineStyle = xlContinuous
+    End If
+    On Error GoTo Cleanup
+
+    ' Freeze & autofit
+    wsOut.Activate: wsOut.Rows("2:2").Select: ActiveWindow.FreezePanes = True
+    wsOut.Cells(1, 1).Select: wsOut.UsedRange.Columns.AutoFit
+
+    Dim elapsed As Single
+    elapsed = Timer - startTime
 
     Application.StatusBar = False
     MsgBox "Fuzzy Lookup Complete!" & vbCrLf & vbCrLf & _
-           "Rows processed: " & totalLeft & vbCrLf & _
-           "Matches found: " & (outRow - 2) & vbCrLf & _
+           "Rows processed: " & totalLeft & " x " & totalRight & vbCrLf & _
+           "Matches found: " & outRow & vbCrLf & _
+           "Time: " & Format(elapsed, "0.0") & " seconds" & vbCrLf & _
            "Output: " & outputSheetName, vbInformation, "Fuzzy Lookup"
 
 Cleanup:
@@ -429,9 +446,7 @@ Cleanup:
     Application.ScreenUpdating = True
     Application.Calculation = xlCalculationAutomatic
     Application.EnableEvents = True
-    If Err.Number <> 0 Then
-        MsgBox "Error: " & Err.Description, vbCritical, "Fuzzy Lookup"
-    End If
+    If Err.Number <> 0 Then MsgBox "Error: " & Err.Description, vbCritical, "Fuzzy Lookup"
 End Sub
 """
 
