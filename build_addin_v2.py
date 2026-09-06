@@ -20,11 +20,11 @@ MOD_ALGORITHMS = """
 Option Explicit
 
 Public Function LevenshteinDistance(ByVal s1 As String, ByVal s2 As String) As Long
+    ' Optimized: 2-row array instead of full matrix (saves memory + faster)
     Dim len1 As Long, len2 As Long
-    Dim matrix() As Long
+    Dim prev() As Long, curr() As Long
     Dim i As Long, j As Long
-    Dim cost As Long
-    Dim above As Long, leftV As Long, diag As Long
+    Dim cost As Long, above As Long, leftV As Long, diag As Long
 
     s1 = LCase$(s1): s2 = LCase$(s2)
     len1 = Len(s1): len2 = Len(s2)
@@ -32,22 +32,31 @@ Public Function LevenshteinDistance(ByVal s1 As String, ByVal s2 As String) As L
     If len1 = 0 Then LevenshteinDistance = len2: Exit Function
     If len2 = 0 Then LevenshteinDistance = len1: Exit Function
 
-    ReDim matrix(0 To len1, 0 To len2)
-    For i = 0 To len1: matrix(i, 0) = i: Next i
-    For j = 0 To len2: matrix(0, j) = j: Next j
+    ' Ensure s1 is shorter (fewer rows to iterate)
+    If len1 > len2 Then
+        Dim tmp As String: tmp = s1: s1 = s2: s2 = tmp
+        Dim tmpL As Long: tmpL = len1: len1 = len2: len2 = tmpL
+    End If
 
-    For i = 1 To len1
-        For j = 1 To len2
+    ReDim prev(0 To len1)
+    ReDim curr(0 To len1)
+    For i = 0 To len1: prev(i) = i: Next i
+
+    For j = 1 To len2
+        curr(0) = j
+        For i = 1 To len1
             If Mid$(s1, i, 1) = Mid$(s2, j, 1) Then cost = 0 Else cost = 1
-            above = matrix(i - 1, j) + 1
-            leftV = matrix(i, j - 1) + 1
-            diag = matrix(i - 1, j - 1) + cost
-            matrix(i, j) = above
-            If leftV < matrix(i, j) Then matrix(i, j) = leftV
-            If diag < matrix(i, j) Then matrix(i, j) = diag
-        Next j
-    Next i
-    LevenshteinDistance = matrix(len1, len2)
+            diag = prev(i - 1) + cost
+            above = prev(i) + 1
+            leftV = curr(i - 1) + 1
+            curr(i) = diag
+            If above < curr(i) Then curr(i) = above
+            If leftV < curr(i) Then curr(i) = leftV
+        Next i
+        ' Swap rows
+        Dim sw() As Long: sw = prev: prev = curr: curr = sw
+    Next j
+    LevenshteinDistance = prev(len1)
 End Function
 
 Public Function LevenshteinSimilarity(ByVal s1 As String, ByVal s2 As String) As Double
@@ -115,40 +124,64 @@ Public Function JaroWinklerSimilarity(ByVal s1 As String, ByVal s2 As String) As
 End Function
 
 Public Function JaccardSimilarity(ByVal s1 As String, ByVal s2 As String) As Double
+    ' Fast token Jaccard without COM Dictionary (uses simple array scan)
     Dim tokens1() As String, tokens2() As String
-    Dim dict As Object, i As Long, token As String
+    Dim i As Long, j As Long, found As Boolean
     Dim unionCount As Long, intersectCount As Long
 
-    s1 = LCase$(Trim$(s1)): s2 = LCase$(Trim$(s2))
     If Len(s1) = 0 And Len(s2) = 0 Then JaccardSimilarity = 1#: Exit Function
     If Len(s1) = 0 Or Len(s2) = 0 Then JaccardSimilarity = 0#: Exit Function
 
     tokens1 = Split(s1, " "): tokens2 = Split(s2, " ")
-    Set dict = CreateObject("Scripting.Dictionary")
+    Dim n1 As Long, n2 As Long
+    n1 = UBound(tokens1) - LBound(tokens1) + 1
+    n2 = UBound(tokens2) - LBound(tokens2) + 1
 
+    intersectCount = 0
     For i = LBound(tokens1) To UBound(tokens1)
-        token = Trim$(tokens1(i))
-        If Len(token) > 0 And Not dict.Exists(token) Then dict.Add token, 1
-    Next i
-    For i = LBound(tokens2) To UBound(tokens2)
-        token = Trim$(tokens2(i))
-        If Len(token) > 0 Then
-            If dict.Exists(token) Then dict(token) = 3 Else dict.Add token, 2
+        If Len(tokens1(i)) > 0 Then
+            found = False
+            For j = LBound(tokens2) To UBound(tokens2)
+                If tokens1(i) = tokens2(j) Then found = True: Exit For
+            Next j
+            If found Then intersectCount = intersectCount + 1
         End If
     Next i
 
-    unionCount = dict.Count: intersectCount = 0
-    Dim v As Variant
-    For Each v In dict.Items: If v = 3 Then intersectCount = intersectCount + 1
-    Next v
+    unionCount = n1 + n2 - intersectCount
     If unionCount = 0 Then JaccardSimilarity = 0# Else JaccardSimilarity = CDbl(intersectCount) / CDbl(unionCount)
 End Function
 
 Public Function CombinedSimilarity(ByVal s1 As String, ByVal s2 As String) As Double
-    Dim lev As Double, jw As Double, jac As Double
-    lev = LevenshteinSimilarity(s1, s2)
+    ' Smart scoring: length pre-filter, cheapest algorithm first, skip expensive ones if not needed
+    Dim len1 As Long, len2 As Long, lenRatio As Double
+    len1 = Len(s1): len2 = Len(s2)
+
+    ' Quick length ratio filter
+    If len1 = 0 And len2 = 0 Then CombinedSimilarity = 1#: Exit Function
+    If len1 = 0 Or len2 = 0 Then CombinedSimilarity = 0#: Exit Function
+    If len1 > len2 Then lenRatio = CDbl(len2) / CDbl(len1) Else lenRatio = CDbl(len1) / CDbl(len2)
+    If lenRatio < 0.3 Then CombinedSimilarity = 0#: Exit Function
+
+    ' Jaro-Winkler is cheapest - run first
+    Dim jw As Double
     jw = JaroWinklerSimilarity(s1, s2)
-    jac = JaccardSimilarity(s1, s2)
+
+    ' If JW is very low, skip expensive algorithms
+    If jw < 0.4 Then CombinedSimilarity = jw * 0.6: Exit Function
+
+    ' Levenshtein
+    Dim lev As Double
+    lev = LevenshteinSimilarity(s1, s2)
+
+    ' Jaccard only for multi-word strings
+    Dim jac As Double
+    If InStr(1, s1, " ") > 0 Or InStr(1, s2, " ") > 0 Then
+        jac = JaccardSimilarity(s1, s2)
+    Else
+        jac = jw  ' single words: Jaccard adds nothing, reuse JW
+    End If
+
     Dim best As Double
     best = lev: If jw > best Then best = jw: If jac > best Then best = jac
     CombinedSimilarity = best * 0.6 + (lev + jw + jac) / 3# * 0.4
