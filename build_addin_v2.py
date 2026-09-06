@@ -503,88 +503,65 @@ End Sub
 """
 
 # =====================================================================
-# VBA: UserForm code — Designer controls + WithEvents for events
-# Controls placed at build time via Designer, events wired via WithEvents
+# VBA: UserForm code — direct design-time control access, no WithEvents
 # =====================================================================
 FORM_CODE = r"""
 Option Explicit
 
-' WithEvents declarations — wired to design-time controls in Initialize
-Private WithEvents mBtnGo As MSForms.CommandButton
-Private WithEvents mBtnClose As MSForms.CommandButton
-Private WithEvents mCboLeftTable As MSForms.ComboBox
-Private WithEvents mCboRightTable As MSForms.ComboBox
-Private WithEvents mScrThreshold As MSForms.ScrollBar
-
 Private Sub UserForm_Initialize()
     Me.StartUpPosition = 0
-    PositionAsTaskPane
 
-    ' Wire WithEvents to existing design-time controls
-    Set mBtnGo = Me.Controls("btnGo")
-    Set mBtnClose = Me.Controls("btnClose")
-    Set mCboLeftTable = Me.Controls("cboLeftTable")
-    Set mCboRightTable = Me.Controls("cboRightTable")
-    Set mScrThreshold = Me.Controls("scrThreshold")
-
-    ' Set scrollbar defaults
-    mScrThreshold.Min = 0: mScrThreshold.Max = 100: mScrThreshold.Value = 65
-    mScrThreshold.SmallChange = 5: mScrThreshold.LargeChange = 10
-
-    Me.Controls("lblThreshVal").Caption = "0.65"
-    Me.Controls("txtMaxMatches").Text = "1"
-    Me.Controls("txtOutputSheet").Text = "Fuzzy_Results"
-    Me.Controls("chkTrim").Value = True
-    Me.Controls("chkLower").Value = True
-    Me.Controls("chkRemovePunct").Value = False
-    Me.Controls("txtTransforms").Text = "Inc => Incorporated" & vbCrLf & "Corp => Corporation" & vbCrLf & "COM STK =>"
-
-    RefreshTables
-End Sub
-
-Private Sub PositionAsTaskPane()
     On Error Resume Next
     Me.Width = 320
     Me.Height = Application.Height - 60
     Me.Left = Application.Left + Application.Width - Me.Width - 10
     Me.Top = Application.Top + 80
     On Error GoTo 0
+
+    scrThreshold.Min = 0: scrThreshold.Max = 100: scrThreshold.Value = 65
+    scrThreshold.SmallChange = 5: scrThreshold.LargeChange = 10
+    lblThreshVal.Caption = "0.65"
+    txtMaxMatches.Text = "1"
+    txtOutputSheet.Text = "Fuzzy_Results"
+    chkTrim.Value = True
+    chkLower.Value = True
+    chkRemovePunct.Value = False
+    txtTransforms.Text = "Inc => Incorporated" & vbCrLf & "Corp => Corporation" & vbCrLf & "COM STK =>"
+
+    RefreshTables
 End Sub
 
-' ---- Populate table/range list ----
 Private Sub RefreshTables()
-    mCboLeftTable.Clear
-    mCboRightTable.Clear
+    cboLeftTable.Clear
+    cboRightTable.Clear
 
     Dim ws As Worksheet
     Dim lo As ListObject
 
     For Each ws In ActiveWorkbook.Worksheets
         For Each lo In ws.ListObjects
-            mCboLeftTable.AddItem lo.Name & "  [Table - " & ws.Name & "]"
-            mCboRightTable.AddItem lo.Name & "  [Table - " & ws.Name & "]"
+            cboLeftTable.AddItem lo.Name & "  [Table - " & ws.Name & "]"
+            cboRightTable.AddItem lo.Name & "  [Table - " & ws.Name & "]"
         Next lo
     Next ws
 
     For Each ws In ActiveWorkbook.Worksheets
         If ws.UsedRange.Rows.Count > 1 Then
-            mCboLeftTable.AddItem ws.Name & "  [Sheet]"
-            mCboRightTable.AddItem ws.Name & "  [Sheet]"
+            cboLeftTable.AddItem ws.Name & "  [Sheet]"
+            cboRightTable.AddItem ws.Name & "  [Sheet]"
         End If
     Next ws
 
-    If mCboLeftTable.ListCount > 0 Then mCboLeftTable.ListIndex = 0
-    If mCboRightTable.ListCount > 1 Then
-        mCboRightTable.ListIndex = 1
-    ElseIf mCboRightTable.ListCount > 0 Then
-        mCboRightTable.ListIndex = 0
+    If cboLeftTable.ListCount > 0 Then cboLeftTable.ListIndex = 0
+    If cboRightTable.ListCount > 1 Then
+        cboRightTable.ListIndex = 1
+    ElseIf cboRightTable.ListCount > 0 Then
+        cboRightTable.ListIndex = 0
     End If
 
-    ' Explicitly populate columns (don't rely on Change events)
-    Dim cboLC As MSForms.ComboBox: Set cboLC = Me.Controls("cboLeftMatchCol")
-    Dim cboRC As MSForms.ComboBox: Set cboRC = Me.Controls("cboRightMatchCol")
-    If mCboLeftTable.ListIndex >= 0 Then PopulateMatchColumns mCboLeftTable, cboLC
-    If mCboRightTable.ListIndex >= 0 Then PopulateMatchColumns mCboRightTable, cboRC
+    ' Explicitly populate columns
+    If cboLeftTable.ListIndex >= 0 Then PopulateMatchColumns cboLeftTable, cboLeftMatchCol
+    If cboRightTable.ListIndex >= 0 Then PopulateMatchColumns cboRightTable, cboRightMatchCol
 End Sub
 
 Private Function ResolveTableRange(ByVal entry As String) As Range
@@ -608,13 +585,12 @@ Private Function ResolveTableRange(ByVal entry As String) As Range
     End If
 End Function
 
-' ---- WithEvents handlers ----
-Private Sub mCboLeftTable_Change()
-    PopulateMatchColumns mCboLeftTable, Me.Controls("cboLeftMatchCol")
+Private Sub cboLeftTable_Change()
+    PopulateMatchColumns cboLeftTable, cboLeftMatchCol
 End Sub
 
-Private Sub mCboRightTable_Change()
-    PopulateMatchColumns mCboRightTable, Me.Controls("cboRightMatchCol")
+Private Sub cboRightTable_Change()
+    PopulateMatchColumns cboRightTable, cboRightMatchCol
 End Sub
 
 Private Sub PopulateMatchColumns(cboTable As MSForms.ComboBox, cboCol As MSForms.ComboBox)
@@ -636,77 +612,58 @@ Private Sub PopulateMatchColumns(cboTable As MSForms.ComboBox, cboCol As MSForms
     If cboCol.ListCount > 0 Then cboCol.ListIndex = 0
 End Sub
 
-Private Sub mScrThreshold_Change()
-    Me.Controls("lblThreshVal").Caption = Format(mScrThreshold.Value / 100#, "0.00")
+Private Sub scrThreshold_Change()
+    lblThreshVal.Caption = Format(scrThreshold.Value / 100#, "0.00")
 End Sub
 
-Private Sub mScrThreshold_Scroll()
-    mScrThreshold_Change
+Private Sub scrThreshold_Scroll()
+    scrThreshold_Change
 End Sub
 
-Private Sub mBtnGo_Click()
-    Dim cboLT As MSForms.ComboBox: Set cboLT = mCboLeftTable
-    Dim cboRT As MSForms.ComboBox: Set cboRT = mCboRightTable
-    Dim cboLC As MSForms.ComboBox: Set cboLC = Me.Controls("cboLeftMatchCol")
-    Dim cboRC As MSForms.ComboBox: Set cboRC = Me.Controls("cboRightMatchCol")
-
-    If cboLT.ListIndex < 0 Then
+Private Sub btnGo_Click()
+    If cboLeftTable.ListIndex < 0 Then
         MsgBox "Select a Left Table.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
-    If cboRT.ListIndex < 0 Then
+    If cboRightTable.ListIndex < 0 Then
         MsgBox "Select a Right Table.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
 
-    ' Auto-populate columns if empty
-    If cboLC.ListCount = 0 Then PopulateMatchColumns cboLT, cboLC
-    If cboRC.ListCount = 0 Then PopulateMatchColumns cboRT, cboRC
+    If cboLeftMatchCol.ListCount = 0 Then PopulateMatchColumns cboLeftTable, cboLeftMatchCol
+    If cboRightMatchCol.ListCount = 0 Then PopulateMatchColumns cboRightTable, cboRightMatchCol
 
-    If cboLC.ListIndex < 0 Then
+    If cboLeftMatchCol.ListIndex < 0 Then
         MsgBox "Select a Left Match Column.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
-    If cboRC.ListIndex < 0 Then
+    If cboRightMatchCol.ListIndex < 0 Then
         MsgBox "Select a Right Match Column.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
 
     Dim leftRange As Range, rightRange As Range
-    Set leftRange = ResolveTableRange(cboLT.Value)
-    Set rightRange = ResolveTableRange(cboRT.Value)
+    Set leftRange = ResolveTableRange(cboLeftTable.Value)
+    Set rightRange = ResolveTableRange(cboRightTable.Value)
 
     If leftRange Is Nothing Or rightRange Is Nothing Then
         MsgBox "Could not resolve table ranges.", vbExclamation, "Fuzzy Lookup": Exit Sub
     End If
 
-    Dim threshold As Double
-    threshold = mScrThreshold.Value / 100#
-
+    Dim threshold As Double: threshold = scrThreshold.Value / 100#
     Dim maxMatches As Long
-    If IsNumeric(Me.Controls("txtMaxMatches").Text) Then
-        maxMatches = CLng(Me.Controls("txtMaxMatches").Text)
-    Else
-        maxMatches = 1
-    End If
+    If IsNumeric(txtMaxMatches.Text) Then maxMatches = CLng(txtMaxMatches.Text) Else maxMatches = 1
     If maxMatches < 1 Then maxMatches = 1
-
-    Dim outputName As String
-    outputName = Trim$(Me.Controls("txtOutputSheet").Text)
+    Dim outputName As String: outputName = Trim$(txtOutputSheet.Text)
     If Len(outputName) = 0 Then outputName = "Fuzzy_Results"
 
-    ' Parse transformations
     Dim rules() As TransformRule
     Dim ruleCount As Long
     ruleCount = 0
     ReDim rules(0 To 99)
-
-    Dim transText As String
-    transText = Me.Controls("txtTransforms").Text
+    Dim transText As String: transText = txtTransforms.Text
     If Len(Trim$(transText)) > 0 Then
-        Dim lines() As String
-        lines = Split(transText, vbCrLf)
+        Dim lines() As String: lines = Split(transText, vbCrLf)
         Dim ln As Long
         For ln = LBound(lines) To UBound(lines)
             Dim parts() As String
-            Dim line As String
-            line = Trim$(lines(ln))
+            Dim line As String: line = Trim$(lines(ln))
             If Len(line) > 0 And InStr(line, "=>") > 0 Then
                 parts = Split(line, "=>", 2)
                 rules(ruleCount).FromText = Trim$(parts(0))
@@ -716,21 +673,16 @@ Private Sub mBtnGo_Click()
         Next ln
     End If
 
-    Dim doTrim As Boolean, doLower As Boolean, doRemovePunct As Boolean
-    doTrim = Me.Controls("chkTrim").Value
-    doLower = Me.Controls("chkLower").Value
-    doRemovePunct = Me.Controls("chkRemovePunct").Value
-
     ExecuteFuzzyLookup leftRange.Worksheet, leftRange.Address, _
-                       cboLC.ListIndex + 1, _
+                       cboLeftMatchCol.ListIndex + 1, _
                        rightRange.Worksheet, rightRange.Address, _
-                       cboRC.ListIndex + 1, _
+                       cboRightMatchCol.ListIndex + 1, _
                        threshold, maxMatches, _
-                       doTrim, doLower, doRemovePunct, _
+                       chkTrim.Value, chkLower.Value, chkRemovePunct.Value, _
                        outputName, rules, ruleCount
 End Sub
 
-Private Sub mBtnClose_Click()
+Private Sub btnClose_Click()
     Unload Me
 End Sub
 """
