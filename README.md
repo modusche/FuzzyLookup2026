@@ -73,7 +73,34 @@ Use these directly in cells:
 → Returns column 2 value of the best match in column 1 above 60% similarity
 ```
 
-## Compatibility
+---
+
+## Option B: Web Add-In (Windows, Mac & Excel Online)
+
+A JavaScript version that works everywhere — no VBA, no macros, no unblocking needed.
+
+### Install
+
+1. Download **[manifest.xml](web-addin/manifest.xml)** from this repository
+2. Open **Excel**
+3. Go to **Insert → Add-ins → Upload My Add-in**
+4. Click **Browse...** and select the **manifest.xml** file
+5. Click **Upload**
+6. A **Fuzzy Lookup** button appears on the **Home** tab — click it to open the task pane
+
+### Usage
+
+Same as the VBA version — select left/right tables, pick match columns, set threshold, click **Go!**
+
+### Compatibility
+
+- Excel 2016, 2019, 2021, 2024 (Windows & Mac)
+- Microsoft 365 (desktop & web)
+- No macros or VBA required
+
+---
+
+## VBA Version Compatibility
 
 - Excel 2016, 2019, 2021, 2024 (32-bit and 64-bit)
 - Microsoft 365
