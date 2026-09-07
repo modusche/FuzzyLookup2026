@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fuzzy Lookup 2026</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      font-size: 13px;
+      color: #333;
+      background: #fff;
+      padding: 8px;
+      max-width: 320px;
+    }
+
+    .section-header {
+      background: #4472C4;
+      color: #fff;
+      font-weight: bold;
+      font-size: 12px;
+      padding: 4px 8px;
+      margin: 8px 0 6px;
+      border-radius: 2px;
+    }
+    .section-header:first-child { margin-top: 0; }
+
+    label { display: block; margin: 4px 0 2px; font-size: 12px; }
+    select, input[type="text"], input[type="number"], textarea {
+      width: 100%;
+      padding: 5px 6px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    select { cursor: pointer; }
+
+    .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .row label { margin: 0; white-space: nowrap; min-width: 80px; }
+    .row select, .row input { flex: 1; }
+
+    .threshold-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+    }
+    .threshold-row input[type="range"] { flex: 1; }
+    .threshold-row .val { font-weight: bold; font-size: 14px; min-width: 36px; text-align: center; }
+    .threshold-hints {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+
+    .check-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+    .check-row input { width: auto; }
+    .check-row label { margin: 0; cursor: pointer; }
+
+    textarea {
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      resize: vertical;
+      min-height: 50px;
+    }
+
+    .btn-row { display: flex; gap: 8px; margin-top: 12px; }
+    button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    #btnGo {
+      flex: 1;
+      background: #4472C4;
+      color: #fff;
+      font-size: 16px;
+    }
+    #btnGo:hover { background: #3661a8; }
+    #btnGo:disabled { background: #999; cursor: wait; }
+    #btnClose {
+      background: #e0e0e0;
+      color: #333;
+    }
+    #btnClose:hover { background: #ccc; }
+
+    .status {
+      margin-top: 8px;
+      padding: 6px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      background: #f0f4ff;
+      color: #4472C4;
+      min-height: 20px;
+    }
+    .status.error { background: #fff0f0; color: #c00; }
+
+    .help { font-size: 10px; color: #888; margin: 2px 0 4px; }
+  </style>
+</head>
+<body>
+
+  <div class="section-header">Left Table (Lookup Values)</div>
+  <div class="row">
+    <label>Table:</label>
+    <select id="cboLeftTable"></select>
+  </div>
+  <div class="row">
+    <label>Match Column:</label>
+    <select id="cboLeftMatchCol"></select>
+  </div>
+
+  <div class="section-header">Right Table (Match Against)</div>
+  <div class="row">
+    <label>Table:</label>
+    <select id="cboRightTable"></select>
+  </div>
+  <div class="row">
+    <label>Match Column:</label>
+    <select id="cboRightMatchCol"></select>
+  </div>
+
+  <div class="section-header">Similarity Threshold</div>
+  <div class="threshold-row">
+    <input type="range" id="scrThreshold" min="0" max="100" value="65" />
+    <span class="val" id="lblThreshVal">0.65</span>
+  </div>
+  <div class="threshold-hints">
+    <span>Low (more matches)</span>
+    <span>High (fewer matches)</span>
+  </div>
+
+  <div class="row">
+    <label>Max Matches:</label>
+    <input type="number" id="txtMaxMatches" value="1" min="1" max="100" style="width:60px;flex:none" />
+    <span style="font-size:11px;color:#888">per row</span>
+  </div>
+
+  <div class="row">
+    <label>Output Sheet:</label>
+    <input type="text" id="txtOutputSheet" value="Fuzzy_Results" />
+  </div>
+
+  <div class="section-header">Text Cleaning</div>
+  <div class="check-row">
+    <input type="checkbox" id="chkTrim" checked />
+    <label for="chkTrim">Trim & collapse spaces</label>
+  </div>
+  <div class="check-row">
+    <input type="checkbox" id="chkLower" checked />
+    <label for="chkLower">Convert to lowercase</label>
+  </div>
+  <div class="check-row">
+    <input type="checkbox" id="chkRemovePunct" />
+    <label for="chkRemovePunct">Remove punctuation</label>
+  </div>
+
+  <div class="section-header">Custom Replacements (optional)</div>
+  <div class="help">One per line: find =&gt; replace</div>
+  <textarea id="txtTransforms" rows="3">Inc => Incorporated
+Corp => Corporation
+COM STK =></textarea>
+
+  <div class="btn-row">
+    <button id="btnGo">Go!</button>
+    <button id="btnClose">Close</button>
+  </div>
+
+  <div class="status" id="status">Ready</div>
+
+  <script type="module" src="taskpane.js"></script>
+</body>
+</html>
