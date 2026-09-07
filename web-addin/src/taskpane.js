@@ -65,11 +65,11 @@ async function populateTables() {
 
       // Add sheets with data
       for (const sheet of sheets.items) {
-        const used = sheet.getUsedRange();
+        const used = sheet.getUsedRangeOrNullObject();
         used.load("rowCount");
         await context.sync();
 
-        if (used.rowCount > 1) {
+        if (!used.isNullObject && used.rowCount > 1) {
           const opt1 = new Option(
             `${sheet.name}  [Sheet]`,
             `sheet:${sheet.name}`
@@ -305,12 +305,12 @@ async function runFuzzyLookup() {
       showStatus(`Writing ${results.length} results...`);
 
       // Write output
-      let outSheet;
-      try {
-        outSheet = context.workbook.worksheets.getItem(outputName);
-        outSheet.getRange().clear();
-      } catch {
+      let outSheet = context.workbook.worksheets.getItemOrNullObject(outputName);
+      await context.sync();
+      if (outSheet.isNullObject) {
         outSheet = context.workbook.worksheets.add(outputName);
+      } else {
+        outSheet.getRange().clear();
       }
       await context.sync();
 
